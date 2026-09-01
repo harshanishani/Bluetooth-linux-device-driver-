@@ -1,0 +1,118 @@
+#include <linux/module.h>
+#include <linux/kernel.h>
+#include <linux/init.h>
+#include <linux/serdev.h>
+#include <linux/of.h>
+#include <linux/string.h>
+
+#define DRIVER_NAME "hello_bt_serdev"
+
+static int hello_bt_receive(struct serdev_device *serdev,const unsigned char *buf,size_t count)
+{
+    pr_info(DRIVER_NAME ": received %zu bytes\n", count);
+    print_hex_dump(KERN_INFO,DRIVER_NAME ": RX: ",DUMP_PREFIX_NONE,16,1,buf,count,false);
+    return count;
+}
+
+static void hello_bt_write_wakeup(struct serdev_device *serdev)
+{
+    pr_info(DRIVER_NAME ": write wakeup\n");
+}
+
+static const struct serdev_device_ops hello_bt_ops = {.receive_buf  = hello_bt_receive,.write_wakeup = hello_bt_write_wakeup,};
+
+
+
+static int hello_bt_probe(struct serdev_device *serdev)
+{
+    const char message[] = "Hello\r\n";
+    int ret;
+
+    pr_info(DRIVER_NAME ": probe started\n");
+
+    serdev_device_set_client_ops(serdev, &hello_bt_ops);
+
+    ret = serdev_device_open(serdev);
+    if (ret) {
+        pr_err(DRIVER_NAME ": failed to open serdev: %d\n", ret);
+        return ret;
+    }
+
+    serdev_device_set_baudrate(serdev, 115200);
+    serdev_device_set_flow_control(serdev, false);
+    serdev_device_set_parity(serdev, SERDEV_PARITY_NONE);
+
+    pr_info(DRIVER_NAME ": UART opened at 115200 baud\n");
+
+    ret = serdev_device_write_buf(serdev,message,strlen(message));
+
+    if (ret < 0) {
+        pr_err(DRIVER_NAME ": failed to send data: %d\n", ret);
+
+        serdev_device_close(serdev);
+        return ret;
+    }
+
+    pr_info(DRIVER_NAME ": sent %d bytes: %s", ret, message);
+
+    return 0;
+}
+
+
+
+static void hello_bt_remove(struct serdev_device *serdev)
+{
+    pr_info(DRIVER_NAME ": removing driver\n");
+
+    serdev_device_close(serdev);
+}
+
+
+static const struct of_device_id hello_bt_of_match[] = {
+    {
+        .compatible = "example,hello-bt-serdev",
+    },
+    { }
+};
+
+MODULE_DEVICE_TABLE(of, hello_bt_of_match);
+
+static struct serdev_device_driver hello_bt_driver = {
+    .probe  = hello_bt_probe,
+    .remove = hello_bt_remove,
+
+    .driver = {
+        .name = DRIVER_NAME,
+        .of_match_table = hello_bt_of_match,
+    },
+};
+
+
+static int __init hello_bt_init(void)
+{
+    int ret;
+
+    pr_info(DRIVER_NAME ": module loaded\n");
+
+    ret = serdev_device_driver_register(&hello_bt_driver);
+
+    if (ret)
+        pr_err(DRIVER_NAME ": driver registration failed: %d\n",
+               ret);
+
+    return ret;
+}
+static void __exit hello_bt_exit(void)
+{
+    pr_info(DRIVER_NAME ": module unloading\n");
+
+    serdev_device_driver_unregister(&hello_bt_driver);
+}
+
+
+module_init(hello_bt_init);
+module_exit(hello_bt_exit);
+
+MODULE_LICENSE("GPL");
+MODULE_AUTHOR("Harsha");
+MODULE_DESCRIPTION("Simple SerDev UART Hello example");
